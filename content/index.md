@@ -1,4 +1,4 @@
 ---
 title: Second Brain
-graphView: true
 ---
+<script>window.location.href='/static/graph-home.html'</script>

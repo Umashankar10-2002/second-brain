@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Second Brain</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,300;0,400;1,300&family=Syne:wght@400;700;800&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0f0f0f;
+    --surface: #1a1a1a;
+    --border: #2a2a2a;
+    --node-color: #4a4a4a;
+    --node-hover: #a0a0a0;
+    --node-hub: #7a7a7a;
+    --text: #c8c8c8;
+    --text-muted: #555555;
+    --link-color: rgba(255,255,255,0.07);
+  }
+
+  html, body {
+    width: 100%; height: 100%;
+    background: var(--bg);
+    overflow: hidden;
+    font-family: 'DM Mono', monospace;
+    color: var(--text);
+    cursor: crosshair;
+  }
+
+  /* Grain overlay */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 100;
+    opacity: 0.4;
+  }
+
+  #canvas {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+  }
+
+  /* Header */
+  #header {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    padding: 28px 36px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    z-index: 10;
+    pointer-events: none;
+  }
+
+  #title {
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: 1.1rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text);
+    opacity: 0.9;
+  }
+
+  #subtitle {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    margin-top: 2px;
+  }
+
+  #node-count {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    letter-spacing: 0.1em;
+  }
+
+  /* Legend */
+  #legend {
+    position: fixed;
+    bottom: 32px;
+    left: 36px;
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    pointer-events: none;
+    opacity: 0;
+    animation: fadeIn 1s ease 1.5s forwards;
+  }
+
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.6rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+
+  .legend-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  /* Tooltip */
+  #tooltip {
+    position: fixed;
+    z-index: 20;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+    max-width: 260px;
+  }
+
+  #tooltip.visible { opacity: 1; }
+
+  .tooltip-inner {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 12px 16px;
+    backdrop-filter: blur(20px);
+  }
+
+  .tooltip-tag {
+    font-size: 0.55rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+  }
+
+  .tooltip-title {
+    font-family: 'Syne', sans-serif;
+    font-weight: 700;
+    font-size: 0.85rem;
+    color: var(--text);
+    line-height: 1.3;
+  }
+
+  .tooltip-hint {
+    font-size: 0.55rem;
+    color: var(--text-muted);
+    margin-top: 8px;
+    letter-spacing: 0.1em;
+  }
+
+  /* Instructions */
+  #instructions {
+    position: fixed;
+    bottom: 32px;
+    right: 36px;
+    z-index: 10;
+    text-align: right;
+    pointer-events: none;
+    opacity: 0;
+    animation: fadeIn 1s ease 2s forwards;
+  }
+
+  #instructions p {
+    font-size: 0.58rem;
+    color: var(--text-muted);
+    letter-spacing: 0.1em;
+    line-height: 1.8;
+  }
+
+  /* Radial gradient backdrop */
+  #backdrop {
+    position: fixed;
+    inset: 0;
+    background: radial-gradient(ellipse 60% 60% at 50% 50%, rgba(255,255,255,0.015) 0%, transparent 70%);
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  @keyframes fadeIn {
+    to { opacity: 1; }
+  }
+
+  svg { cursor: crosshair; }
+  .node-circle { cursor: pointer; transition: r 0.2s ease; }
+  .node-label { cursor: pointer; pointer-events: none; }
+</style>
+</head>
+<body>
+
+<div id="backdrop"></div>
+
+<div id="header">
+  <div>
+    <div id="title">Second Brain</div>
+    <div id="subtitle">Knowledge Graph</div>
+  </div>
+  <div id="node-count">— nodes</div>
+</div>
+
+<div id="legend">
+  <div class="legend-item"><div class="legend-dot" style="background:#8a8a8a"></div>hub</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#606060"></div>connected</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#454545"></div>leaf</div>
+</div>
+
+<div id="instructions">
+  <p>drag · zoom · click to open</p>
+</div>
+
+<div id="tooltip">
+  <div class="tooltip-inner">
+    <div class="tooltip-tag" id="tt-tag">wiki</div>
+    <div class="tooltip-title" id="tt-title">Node Title</div>
+    <div class="tooltip-hint">click to open →</div>
+  </div>
+</div>
+
+<svg id="canvas"></svg>
+
+<script>
+const W = window.innerWidth, H = window.innerHeight;
+
+const svg = d3.select('#canvas')
+  .attr('width', W).attr('height', H);
+
+const defs = svg.append('defs');
+
+// Glow filter
+const filter = defs.append('filter').attr('id', 'glow');
+filter.append('feGaussianBlur').attr('stdDeviation', '3').attr('result', 'coloredBlur');
+const feMerge = filter.append('feMerge');
+feMerge.append('feMergeNode').attr('in', 'coloredBlur');
+feMerge.append('feMergeNode').attr('in', 'SourceGraphic');
+
+// Strong glow
+const filterStrong = defs.append('filter').attr('id', 'glow-strong');
+filterStrong.append('feGaussianBlur').attr('stdDeviation', '6').attr('result', 'coloredBlur');
+const feMerge2 = filterStrong.append('feMerge');
+feMerge2.append('feMergeNode').attr('in', 'coloredBlur');
+feMerge2.append('feMergeNode').attr('in', 'SourceGraphic');
+
+const g = svg.append('g');
+
+// Zoom
+const zoom = d3.zoom()
+  .scaleExtent([0.2, 4])
+  .on('zoom', e => g.attr('transform', e.transform));
+svg.call(zoom);
+
+// Color by folder/type
+function nodeColor(d) {
+  // Bigger nodes (hubs) are slightly lighter, like Obsidian
+  const r = nodeRadius(d);
+  if (r >= 10) return '#8a8a8a';
+  if (r >= 7) return '#606060';
+  return '#454545';
+}
+
+function nodeType(id) {
+  if (id.startsWith('wiki/')) return 'wiki';
+  if (id.startsWith('journal/')) return 'journal';
+  if (id.startsWith('crm/')) return 'crm';
+  return 'other';
+}
+
+function nodeRadius(d) {
+  const base = Math.max(4, Math.min(12, 4 + (d.connections || 0) * 1.5));
+  return base;
+}
+
+function cleanTitle(id) {
+  return id.split('/').pop().replace(/-/g, ' ');
+}
+
+function urlFor(id) {
+  // Quartz URL pattern
+  return '/' + id.replace(/ /g, '-');
+}
+
+// Load Quartz content index
+async function loadGraph() {
+  let nodes = [], links = [];
+
+  try {
+    const res = await fetch('/static/contentIndex.json');
+    const data = await res.json();
+
+    // data is { "slug": { title, links, backlinks, ... } }
+    const slugs = Object.keys(data);
+
+    nodes = slugs.map(slug => ({
+      id: slug,
+      title: data[slug].title || cleanTitle(slug),
+      connections: (data[slug].links || []).length + (data[slug].backlinks || []).length,
+    }));
+
+    // Build links from outgoing links
+    const slugSet = new Set(slugs);
+    slugs.forEach(slug => {
+      (data[slug].links || []).forEach(target => {
+        if (slugSet.has(target) && target !== slug) {
+          links.push({ source: slug, target });
+        }
+      });
+    });
+
+  } catch(e) {
+    // Fallback: hardcoded from your vault
+    nodes = [
+      { id: 'wiki/llm-wiki', title: 'LLM Wiki', connections: 5 },
+      { id: 'wiki/Truthful YouTube Packaging', title: 'Truthful YouTube Packaging', connections: 4 },
+      { id: 'wiki/Minecraft Challenge Packaging', title: 'Minecraft Challenge Packaging', connections: 3 },
+      { id: 'wiki/Trading Psychology and Risk', title: 'Trading Psychology and Risk', connections: 3 },
+      { id: 'wiki/Algorithmic Trading and Market Structure', title: 'Algorithmic Trading and Market Structure', connections: 3 },
+      { id: 'wiki/LLM Wiki Operating Model', title: 'LLM Wiki Operating Model', connections: 2 },
+      { id: 'wiki/1,000,000 Villager MANHUNT', title: '1,000,000 Villager MANHUNT', connections: 2 },
+      { id: 'wiki/I Must Win MrBeast\'s $10,000 Refrigerator', title: 'MrBeast Refrigerator', connections: 2 },
+      { id: 'wiki/If MrBeast did a Minecraft Speedrun', title: 'MrBeast Minecraft Speedrun', connections: 2 },
+      { id: 'wiki/The DUMBEST WallStreetBets Trades of October', title: 'Dumbest WSB Trades', connections: 2 },
+      { id: 'wiki/The Man Who Crashed The Stock Market From Home', title: 'Flash Crash Man', connections: 2 },
+      { id: 'wiki/Top 5 WILDEST Live Trading Moments With Reactions', title: 'Wildest Trading Moments', connections: 2 },
+      { id: 'wiki/Reinforcement Learning Trading Bot in Python  Train an AI Agent on Forex (EURUSD)', title: 'RL Trading Bot', connections: 2 },
+      { id: 'wiki/Grox', title: 'Grox', connections: 1 },
+      { id: 'wiki/SB737+', title: 'SB737+', connections: 1 },
+      { id: 'wiki/Technoblade', title: 'Technoblade', connections: 1 },
+      { id: 'wiki/ProfessorBiggy', title: 'ProfessorBiggy', connections: 1 },
+      { id: 'wiki/CodeTrading', title: 'CodeTrading', connections: 1 },
+      { id: 'wiki/Yummers', title: 'Yummers', connections: 1 },
+      { id: 'wiki/Hamish Hodder', title: 'Hamish Hodder', connections: 1 },
+      { id: 'wiki/Gas Fee TV', title: 'Gas Fee TV', connections: 1 },
+      { id: 'journal/2026-05-09 - Video Ideas and Packaging Anxiety', title: 'Video Ideas & Packaging Anxiety', connections: 2 },
+      { id: 'crm/Matthew Berman', title: 'Matthew Berman', connections: 1 },
+      { id: 'index', title: 'Index', connections: 8 },
+      { id: 'log', title: 'Log', connections: 3 },
+    ];
+
+    links = [
+      { source: 'wiki/Truthful YouTube Packaging', target: 'wiki/1,000,000 Villager MANHUNT' },
+      { source: 'wiki/Truthful YouTube Packaging', target: 'wiki/I Must Win MrBeast\'s $10,000 Refrigerator' },
+      { source: 'wiki/Truthful YouTube Packaging', target: 'wiki/If MrBeast did a Minecraft Speedrun' },
+      { source: 'wiki/Truthful YouTube Packaging', target: 'journal/2026-05-09 - Video Ideas and Packaging Anxiety' },
+      { source: 'wiki/Minecraft Challenge Packaging', target: 'wiki/1,000,000 Villager MANHUNT' },
+      { source: 'wiki/Minecraft Challenge Packaging', target: 'wiki/I Must Win MrBeast\'s $10,000 Refrigerator' },
+      { source: 'wiki/Minecraft Challenge Packaging', target: 'wiki/If MrBeast did a Minecraft Speedrun' },
+      { source: 'wiki/Trading Psychology and Risk', target: 'wiki/The DUMBEST WallStreetBets Trades of October' },
+      { source: 'wiki/Trading Psychology and Risk', target: 'wiki/Top 5 WILDEST Live Trading Moments With Reactions' },
+      { source: 'wiki/Algorithmic Trading and Market Structure', target: 'wiki/Reinforcement Learning Trading Bot in Python  Train an AI Agent on Forex (EURUSD)' },
+      { source: 'wiki/Algorithmic Trading and Market Structure', target: 'wiki/The Man Who Crashed The Stock Market From Home' },
+      { source: 'wiki/1,000,000 Villager MANHUNT', target: 'wiki/Grox' },
+      { source: 'wiki/I Must Win MrBeast\'s $10,000 Refrigerator', target: 'wiki/Technoblade' },
+      { source: 'wiki/If MrBeast did a Minecraft Speedrun', target: 'wiki/ProfessorBiggy' },
+      { source: 'wiki/Reinforcement Learning Trading Bot in Python  Train an AI Agent on Forex (EURUSD)', target: 'wiki/CodeTrading' },
+      { source: 'wiki/The DUMBEST WallStreetBets Trades of October', target: 'wiki/Yummers' },
+      { source: 'wiki/The Man Who Crashed The Stock Market From Home', target: 'wiki/Hamish Hodder' },
+      { source: 'wiki/Top 5 WILDEST Live Trading Moments With Reactions', target: 'wiki/Gas Fee TV' },
+      { source: 'index', target: 'wiki/llm-wiki' },
+      { source: 'index', target: 'wiki/Truthful YouTube Packaging' },
+      { source: 'index', target: 'wiki/Minecraft Challenge Packaging' },
+      { source: 'index', target: 'wiki/Trading Psychology and Risk' },
+      { source: 'index', target: 'wiki/Algorithmic Trading and Market Structure' },
+      { source: 'log', target: 'wiki/LLM Wiki Operating Model' },
+      { source: 'wiki/First time playing my Hardcore World in 5 Months...', target: 'wiki/SB737+' },
+    ];
+  }
+
+  document.getElementById('node-count').textContent = `${nodes.length} nodes`;
+
+  // Force simulation
+  const sim = d3.forceSimulation(nodes)
+    .force('link', d3.forceLink(links).id(d => d.id).distance(80).strength(0.4))
+    .force('charge', d3.forceManyBody().strength(-220))
+    .force('center', d3.forceCenter(W / 2, H / 2))
+    .force('collision', d3.forceCollide().radius(d => nodeRadius(d) + 16))
+    .force('x', d3.forceX(W / 2).strength(0.03))
+    .force('y', d3.forceY(H / 2).strength(0.03));
+
+  // Links
+  const link = g.append('g').selectAll('line')
+    .data(links).join('line')
+    .attr('stroke', 'rgba(255,255,255,0.07)')
+    .attr('stroke-width', 1);
+
+  // Node groups
+  const node = g.append('g').selectAll('g')
+    .data(nodes).join('g')
+    .call(d3.drag()
+      .on('start', (e, d) => { if (!e.active) sim.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
+      .on('drag', (e, d) => { d.fx = e.x; d.fy = e.y; })
+      .on('end', (e, d) => { if (!e.active) sim.alphaTarget(0); d.fx = null; d.fy = null; })
+    );
+
+  // Outer glow ring
+  node.append('circle')
+    .attr('r', d => nodeRadius(d) + 4)
+    .attr('fill', 'none')
+    .attr('stroke', d => nodeColor(d))
+    .attr('stroke-width', 0.5)
+    .attr('opacity', 0.2)
+    .attr('class', 'node-ring');
+
+  // Main circle
+  node.append('circle')
+    .attr('r', d => nodeRadius(d))
+    .attr('fill', d => nodeColor(d))
+    .attr('fill-opacity', 0.85)
+    .attr('filter', 'url(#glow)')
+    .attr('class', 'node-circle')
+    .on('mouseenter', function(e, d) {
+      d3.select(this)
+        .transition().duration(150)
+        .attr('r', nodeRadius(d) * 1.4)
+        .attr('filter', 'url(#glow-strong)');
+      d3.select(this.parentNode).select('.node-ring')
+        .transition().duration(150).attr('opacity', 0.5);
+      showTooltip(e, d);
+    })
+    .on('mousemove', moveTooltip)
+    .on('mouseleave', function(e, d) {
+      d3.select(this)
+        .transition().duration(200)
+        .attr('r', nodeRadius(d))
+        .attr('filter', 'url(#glow)');
+      d3.select(this.parentNode).select('.node-ring')
+        .transition().duration(200).attr('opacity', 0.2);
+      hideTooltip();
+    })
+    .on('click', (e, d) => {
+      window.location.href = urlFor(d.id);
+    });
+
+  // Labels for bigger nodes
+  node.filter(d => nodeRadius(d) >= 6)
+    .append('text')
+    .attr('class', 'node-label')
+    .attr('dy', d => nodeRadius(d) + 12)
+    .attr('text-anchor', 'middle')
+    .attr('fill', '#888888')
+    .attr('font-size', '9px')
+    .attr('font-family', 'DM Mono, monospace')
+    .attr('letter-spacing', '0.05em')
+    .text(d => d.title.length > 22 ? d.title.slice(0, 20) + '…' : d.title);
+
+  sim.on('tick', () => {
+    link
+      .attr('x1', d => d.source.x).attr('y1', d => d.source.y)
+      .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
+    node.attr('transform', d => `translate(${d.x},${d.y})`);
+  });
+
+  // Subtle initial zoom out
+  svg.call(zoom.transform, d3.zoomIdentity.translate(W * 0.05, H * 0.05).scale(0.9));
+}
+
+const tooltip = document.getElementById('tooltip');
+const ttTag = document.getElementById('tt-tag');
+const ttTitle = document.getElementById('tt-title');
+
+function showTooltip(e, d) {
+  ttTag.textContent = nodeType(d.id);
+  ttTitle.textContent = d.title;
+  tooltip.classList.add('visible');
+  moveTooltip(e);
+}
+
+function moveTooltip(e) {
+  let x = e.clientX + 16, y = e.clientY - 10;
+  if (x + 280 > W) x = e.clientX - 280;
+  if (y + 80 > H) y = e.clientY - 80;
+  tooltip.style.left = x + 'px';
+  tooltip.style.top = y + 'px';
+}
+
+function hideTooltip() {
+  tooltip.classList.remove('visible');
+}
+
+loadGraph();
+</script>
+</body>
+</html>
