@@ -1,3 +1,14 @@
 @use "./base.scss";
 
 // put your custom CSS here!
+
+#global-graph-outer {
+  width: 92vw !important;
+  height: 88vh !important;
+  max-width: unset !important;
+}
+
+#global-graph-container {
+  width: 100% !important;
+  height: 100% !important;
+}
