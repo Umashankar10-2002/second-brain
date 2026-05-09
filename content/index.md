@@ -1,4 +1,7 @@
 ---
 title: Second Brain
+aliases: []
 ---
-<script>window.location.href='/static/graph-home.html'</script>
+
+<div id="redir"></div>
+<script>window.location.replace('/static/graph-home.html')</script>
