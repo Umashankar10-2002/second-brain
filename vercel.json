@@ -1,5 +1,6 @@
 {
   "redirects": [
     { "source": "/", "destination": "/static/graph-home.html", "permanent": false }
-  ]
+  ],
+  "cleanUrls": true
 }
